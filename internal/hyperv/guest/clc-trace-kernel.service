@@ -1,0 +1,38 @@
+[Unit]
+Description=CLC independent kernel diagnostic observer
+After=systemd-journald.service dbus.service
+Before=cloud-final.service clc-runner.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /opt/clc/trace-kernel.py
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=10
+UMask=0077
+LogsDirectory=clc-diagnostics
+LogsDirectoryMode=0700
+StandardOutput=null
+StandardError=journal
+SyslogIdentifier=clc-trace-kernel
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=10
+LimitCORE=0
+LimitMEMLOCK=64M
+MemoryMax=384M
+CPUQuota=20%
+Nice=10
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_SYS_RESOURCE
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

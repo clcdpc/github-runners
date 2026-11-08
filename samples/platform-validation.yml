@@ -1,0 +1,43 @@
+name: CLC native Docker platform validation
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  docker-action:
+    runs-on: clc-linux
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker://alpine:3.23.2
+        with:
+          entrypoint: /bin/sh
+          args: -c 'test -d /github/workspace && echo Docker-action-passed'
+  service-container:
+    runs-on: clc-linux
+    timeout-minutes: 15
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - name: Query service from the runner VM over localhost
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import socket
+          with socket.create_connection(('127.0.0.1', 6379), timeout=10) as connection:
+              connection.sendall(b'*1\r\n$4\r\nPING\r\n')
+              assert connection.recv(128) == b'+PONG\r\n'
+          PY
+      - name: Verify native Docker and workflow service
+        env:
+          REDIS_ID: ${{ job.services.redis.id }}
+        run: |
+          docker info
+          test "$(docker exec "$REDIS_ID" redis-cli ping)" = PONG

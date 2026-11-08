@@ -1,0 +1,81 @@
+name: CLC runner validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      outcome:
+        description: Choose success, a deliberate failure, or hold so you can cancel the job.
+        type: choice
+        options: [success, failure, hold]
+        default: success
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: clc-linux
+    timeout-minutes: 10
+    steps:
+      - name: Inspect runner and verify a fresh workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'Runner: %s\nContainer: %s\n' "$RUNNER_NAME" "$(hostname)"
+          uname -a
+          git --version
+          dotnet --info
+          [[ "$(dotnet --version)" == 10.* ]]
+          test ! -e "$GITHUB_WORKSPACE/.clc-previous-run"
+          test ! -e "$RUNNER_TEMP/.clc-previous-run"
+          touch "$GITHUB_WORKSPACE/.clc-previous-run" "$RUNNER_TEMP/.clc-previous-run"
+
+      - name: Build .NET 10 and run MSTest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/clc-validation"
+          cd "$RUNNER_TEMP/clc-validation"
+          cat > Validation.csproj <<'PROJECT'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net10.0</TargetFramework>
+              <IsTestProject>true</IsTestProject>
+              <IsPackable>false</IsPackable>
+              <ImplicitUsings>enable</ImplicitUsings>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+              <PackageReference Include="MSTest.TestAdapter" Version="4.5.2" />
+              <PackageReference Include="MSTest.TestFramework" Version="4.5.2" />
+            </ItemGroup>
+          </Project>
+          PROJECT
+          cat > CalculatorTests.cs <<'CSHARP'
+          using Microsoft.VisualStudio.TestTools.UnitTesting;
+          [TestClass]
+          public sealed class CalculatorTests
+          {
+              [TestMethod]
+              [DataRow(1, 2, 3)]
+              [DataRow(-2, 2, 0)]
+              public void AddsNumbers(int left, int right, int expected) =>
+                  Assert.AreEqual(expected, checked(left + right));
+              [TestMethod]
+              public void OverflowIsRejected() =>
+                  Assert.ThrowsExactly<OverflowException>(() => { _ = checked(int.MaxValue + int.Parse("1")); });
+          }
+          CSHARP
+          dotnet build --configuration Release
+          dotnet test --configuration Release --no-build --logger 'console;verbosity=normal'
+
+      - name: Exercise failure or cancellation
+        shell: bash
+        env:
+          VALIDATION_OUTCOME: ${{ inputs.outcome }}
+        run: |
+          case "$VALIDATION_OUTCOME" in
+            success) echo 'Validation completed.' ;;
+            failure) echo 'Deliberate validation failure.'; exit 1 ;;
+            hold) echo 'Cancel this workflow now to exercise runner cleanup.'; sleep 300 ;;
+          esac

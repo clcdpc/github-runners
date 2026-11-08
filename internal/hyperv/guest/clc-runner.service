@@ -1,0 +1,27 @@
+[Unit]
+Description=CLC single-job GitHub Actions runner
+After=cloud-final.service network-online.target docker.service
+Wants=network-online.target clc-trace-bus.service clc-trace-kernel.service clc-trace-state.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=runner
+Group=runner
+SupplementaryGroups=docker
+WorkingDirectory=/home/runner
+Environment=HOME=/home/runner
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=RUNNER_TOOL_CACHE=/opt/hostedtoolcache
+Environment=AGENT_TOOLSDIRECTORY=/opt/hostedtoolcache
+Environment=DOTNET_NOLOGO=1
+Environment=DOTNET_INSTALL_DIR=/usr/share/dotnet
+Environment=DOTNET_CLI_TELEMETRY_OPTOUT=1
+Environment=ACTIONS_RUNNER_HOOK_JOB_STARTED=/opt/clc/job-started.sh
+Environment=ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/opt/clc/job-completed.sh
+ExecStart=/opt/clc/runner.sh
+Restart=no
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

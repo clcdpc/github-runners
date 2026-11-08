@@ -1,0 +1,41 @@
+name: Runner capacity validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: Simultaneous eligible jobs (two, three, or four)
+        type: choice
+        options: ['2', '3', '4']
+        default: '4'
+
+permissions:
+  contents: read
+
+# Install in an approved validation repository with access to CLC-Runners.
+# Four independent jobs let an operator observe three VMs and a fourth queued
+# job, followed by automatic slot reuse. No repository checkout is necessary.
+jobs:
+  capacity:
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        slot: ${{ fromJSON(inputs.jobs == '2' && '[1,2]' || inputs.jobs == '3' && '[1,2,3]' || '[1,2,3,4]') }}
+    runs-on: clc-linux
+    timeout-minutes: 12
+    steps:
+      - name: Hold an eligible slot with lightweight guest diagnostics
+        shell: bash
+        env:
+          SLOT: ${{ matrix.slot }}
+        run: |
+          set -euo pipefail
+          printf 'slot=%s host=%s started=%s\n' "$SLOT" "$(hostname)" "$(date --iso-8601=seconds)"
+          nproc
+          free -b
+          for file in /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io; do
+            printf '%s\n' "$file"; cat "$file"
+          done
+          sleep 300
+          printf 'slot=%s host=%s completed=%s\n' "$SLOT" "$(hostname)" "$(date --iso-8601=seconds)"

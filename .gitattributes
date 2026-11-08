@@ -1,0 +1,7 @@
+* text=auto
+*.sh text eol=lf
+*.ps1 text eol=crlf
+*.go text eol=lf
+Dockerfile text eol=lf
+# Guest scripts and systemd units must survive Windows checkouts as Linux text.
+internal/hyperv/guest/* text eol=lf

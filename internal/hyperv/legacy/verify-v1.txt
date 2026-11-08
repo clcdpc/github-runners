@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+mode=${1:-smoke}
+docker info >/dev/null
+docker compose version
+docker buildx version
+dotnet --list-sdks | grep '^10\.'
+test -w /usr/share/dotnet
+node --version | grep '^v24\.'
+npm --version
+pwsh -NoLogo -NoProfile -Command 'if ($PSVersionTable.PSVersion.Major -ne 7) { exit 1 }'
+python3 --version
+git --version
+test -x /home/runner/bin/Runner.Listener
+getent hosts github.com
+curl -fsSI --retry 3 https://api.github.com >/dev/null
+docker run --rm hello-world
+work=$(mktemp -d)
+cleanup() { docker rm -f clc-probe clc-sql >/dev/null 2>&1 || true; docker compose -f "$work/compose.yml" down >/dev/null 2>&1 || true; docker image rm clc-probe-image >/dev/null 2>&1 || true; rm -rf "$work"; }
+trap cleanup EXIT
+printf 'FROM alpine:3.23.2\nRUN echo built > /proof\nCMD ["sleep", "300"]\n' > "$work/Dockerfile"
+docker build -t clc-probe-image "$work"
+docker run -d --name clc-probe clc-probe-image >/dev/null
+test "$(docker exec clc-probe cat /proof)" = built
+docker rm -f clc-probe >/dev/null
+printf 'services:\n  test:\n    image: clc-probe-image\n' > "$work/compose.yml"
+docker compose -f "$work/compose.yml" up -d
+docker compose -f "$work/compose.yml" exec -T test cat /proof | grep built
+if test "$mode" = full; then
+  # SQL password stays inside this disposable guest. Never trace shell commands.
+  password="Clc$(openssl rand -hex 24)Aa1!"
+  docker run -d --name clc-sql -e ACCEPT_EULA=Y -e "MSSQL_SA_PASSWORD=$password" -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+  ready=false
+  for attempt in $(seq 1 90); do
+    if docker exec clc-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$password" -C -Q 'SELECT 1' >/dev/null 2>&1; then ready=true; break; fi
+    sleep 2
+  done
+  if test "$ready" != true; then docker logs --tail 100 clc-sql; exit 1; fi
+  # Host network here is Ubuntu's network namespace, proving localhost:1433
+  # reaches the published SQL port from the runner, rather than only container IP.
+  docker run --rm --network host --entrypoint /opt/mssql-tools18/bin/sqlcmd mcr.microsoft.com/mssql/server:2022-latest -S localhost,1433 -U sa -P "$password" -C -Q 'SELECT @@VERSION' >/dev/null
+  python3 -c 'import socket; socket.create_connection(("localhost",1433),5).close()'
+  dotnet new console --framework net10.0 -o "$work/sql-probe" >/dev/null
+  dotnet add "$work/sql-probe" package Microsoft.Data.SqlClient --version 6.1.6 >/dev/null
+  cat > "$work/sql-probe/Program.cs" <<'CS'
+using Microsoft.Data.SqlClient;
+var password = Environment.GetEnvironmentVariable("CLC_SQL_PASSWORD") ?? throw new Exception("Missing ephemeral SQL password");
+var builder = new SqlConnectionStringBuilder { DataSource="localhost,1433", InitialCatalog="master", UserID="sa", Password=password, TrustServerCertificate=true };
+await using var connection = new SqlConnection(builder.ConnectionString);
+await connection.OpenAsync();
+await using var command = new SqlCommand("SELECT 42", connection);
+if (Convert.ToInt32(await command.ExecuteScalarAsync()) != 42) throw new Exception("Unexpected SQL result");
+Console.WriteLine(".NET SQL localhost integration passed");
+CS
+  CLC_SQL_PASSWORD="$password" dotnet run --project "$work/sql-probe" --configuration Release
+  dotnet publish "$work/sql-probe" --configuration Release --runtime win-x64 --self-contained true --output "$work/windows-publish" >/dev/null
+  test -f "$work/windows-publish/sql-probe.exe"
+  mkdir "$work/browser"
+  cd "$work/browser"
+  npm init -y >/dev/null
+  npm install --save-exact playwright@1.62.1 >/dev/null
+  npx playwright install chromium
+  node -e 'const {chromium}=require("playwright"); (async()=>{const b=await chromium.launch({headless:true});const p=await b.newPage();await p.setContent("<h1>CLC browser probe</h1>");if(await p.locator("h1").innerText()!=="CLC browser probe")process.exitCode=1;await b.close()})().catch(e=>{console.error(e);process.exit(1)})'
+fi
+echo 'CLC_VALIDATION_PASSED'

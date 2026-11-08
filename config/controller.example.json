@@ -1,0 +1,51 @@
+{
+  "storageRoot": ".",
+  "github": {
+    "organizationUrl": "https://github.com/clcdpc",
+    "runnerGroup": "CLC-Runners",
+    "scaleSet": "clc-linux",
+    "repositories": [],
+    "allowPublicRepositories": false
+  },
+  "runners": {
+    "minimum": 0,
+    "maximum": 3,
+    "startupTimeoutSeconds": 900,
+    "idleGraceSeconds": 120,
+    "completionGraceSeconds": 120
+  },
+  "hyperv": {
+    "powerShell": "pwsh.exe",
+    "script": "../scripts/HyperV.ps1",
+    "ssh": "C:\\Windows\\System32\\OpenSSH\\ssh.exe",
+    "sshKeygen": "C:\\Windows\\System32\\OpenSSH\\ssh-keygen.exe",
+    "imageDirectory": "images",
+    "imageRecipe": "../image/recipe.json",
+    "qemuImg": "C:\\Program Files\\qemu\\qemu-img.exe",
+    "switchName": "CLC-Runners",
+    "natName": "CLC-Runners",
+    "subnet": "192.168.231.0/24",
+    "gateway": "192.168.231.1",
+    "firstAddress": "192.168.231.10",
+    "lastAddress": "192.168.231.250",
+    "dns": ["1.1.1.1", "8.8.8.8"],
+    "cpus": 2,
+    "memoryGiB": 10,
+    "diskGiB": 20,
+    "diskGrowthGiB": 20,
+    "reserveMemoryGiB": 8,
+    "reserveDiskGiB": 15,
+    "secureBoot": true,
+    "commandTimeoutSeconds": 60
+  },
+  "controller": {
+    "dataDirectory": "data",
+    "logDirectory": "logs",
+    "patFile": "secrets/github-pat.dpapi",
+    "startupRunLevel": "Limited",
+    "reconcileIntervalSeconds": 10,
+    "retrySeconds": 10,
+    "logLevel": "info",
+    "logRetentionDays": 30
+  }
+}
