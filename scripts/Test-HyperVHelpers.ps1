@@ -136,6 +136,25 @@ try {
         Initialize-RunnerNetwork $config *> $null
         $second=Read-RunnerJson (Join-Path $local.Settings.controller.dataDirectory 'network.json')
         Assert-HV ($netCreates -eq 3 -and $first.owner -eq $second.owner) 'Repeated network preparation mutated/recreated resources'
+
+        # A fresh checkout must require the original ownership record, then reuse
+        # the verified network without recreating it or changing the source record.
+        $newConfig=Join-Path $scratch 'relocated-checkout/local/controller.json'
+        $newLocal=Initialize-RunnerConfig $newConfig
+        $sourceRecord=Join-Path $local.Settings.controller.dataDirectory 'network.json'
+        $targetRecord=Join-Path $newLocal.Settings.controller.dataDirectory 'network.json'
+        $sourceHash=(Get-FileHash -LiteralPath $sourceRecord).Hash
+        Assert-HVFailure { Initialize-RunnerNetwork $newConfig } 'restore its matching network.json here and rerun'
+        Assert-HV ($netCreates -eq 3 -and -not (Test-Path -LiteralPath $targetRecord)) 'Missing ownership record adopted or changed an existing network'
+        [IO.File]::Copy($sourceRecord, $targetRecord, $false)
+        Initialize-RunnerNetwork $newConfig *> $null
+        $restored=Read-RunnerJson $targetRecord
+        Assert-HV ($netCreates -eq 3 -and $restored.owner -ceq $first.owner -and $restored.switchId -ceq $first.switchId -and $restored.phase -eq 'ready') 'Restoring ownership metadata did not reuse the original network'
+        Assert-HV ((Get-FileHash -LiteralPath $sourceRecord).Hash -eq $sourceHash) 'Recovery changed the original checkout ownership record'
+        $restored.switchId=[guid]::NewGuid().ToString(); Write-RunnerJson $targetRecord $restored
+        Assert-HVFailure { Initialize-RunnerNetwork $newConfig } 'ownership mismatch'
+        Assert-HV ($netCreates -eq 3) 'An unrelated restored switch identity changed the network'
+
         $script:ipFailure='denied'
         Assert-HVFailure { Initialize-RunnerNetwork $config } 'access denied'
         Assert-HV ($netCreates -eq 3) 'An IPv4 query failure changed the network'

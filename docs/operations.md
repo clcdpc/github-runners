@@ -64,6 +64,84 @@ The [startup probe](#unattended-boot-startup) verifies the target user's actual
 noninteractive Hyper-V and DPAPI access. Machine-specific ACL or managed-policy
 restrictions may still need their exact reported errors resolved.
 
+### Recover preparation started in another checkout
+
+The switch and NAT belong to the Windows host, while their ownership record is
+stored in `network.json` under the configured `controller.dataDirectory`. Running
+preparation from a different checkout with fresh storage therefore reports that
+the configured switch/NAT already exists without its ownership record. The
+checkout is determined by the script's location, so invoke the script in the
+intended checkout after changing directories.
+
+If preparation was started in the wrong checkout on the **same host**, and neither
+installation has been activated, copy only the original `network.json` into the
+intended data directory and rerun preparation. With default storage paths, replace
+the old checkout path below and run in elevated PowerShell 7:
+
+```powershell
+Set-Location C:\Apps\github-runners
+$oldNetwork = 'C:\OldCheckout\github-runners\local\data\network.json'
+$newData = Join-Path $PWD.Path 'local\data'
+New-Item -ItemType Directory -Path $newData -Force | Out-Null
+[IO.File]::Copy($oldNetwork, (Join-Path $newData 'network.json'), $false)
+.\scripts\Prepare-RunnerAccount.ps1 -UserName github-runners
+```
+
+For custom storage/configuration, use the actual source and target data directories
+and supply the same `-Config` and `-StorageRoot` options as the intended preparation
+command. The copy fails if the destination record already exists; inspect that
+record before proceeding. Preparation validates the saved switch GUID, ownership
+notes, names, subnet and gateway before reusing the network, and writes a new
+account-preparation receipt for the intended configuration. Keep using the intended
+checkout after recovery; running two controllers on this network can allocate
+duplicate guest addresses.
+
+To reuse the original network when its record is missing, recover the record from
+a backup. To discard unused preparation and start again, use the reset below. If
+the original installation was already activated, follow the existing installation's
+recovery process; account preparation supports fresh installations only.
+
+### Reset unused preparation
+
+After running account preparation in the wrong checkout, you can explicitly reset
+its unused network and preparation records. From the intended checkout, in
+elevated PowerShell 7 on that Windows host:
+
+```powershell
+.\scripts\Reset-RunnerPreparation.ps1 -WhatIf
+.\scripts\Reset-RunnerPreparation.ps1
+.\scripts\Prepare-RunnerAccount.ps1 -UserName github-runners
+```
+
+The preview lists the exact switch, NAT and files. The actual reset asks for
+confirmation, removes the marked runner internal switch and matching NAT, then
+removes `network.json`, `host-validation.json` and `account-preparation.json` in
+the selected data directory. A failed network removal retains its records for
+retry. The Windows account, group membership/batch-logon rights, configuration,
+checkout, installed tools and Hyper-V feature remain ready for reuse. Empty
+directories and lock files can also be reused.
+
+If the original checkout still exists, select its configuration to also clear
+the preparation records there, then run preparation from the intended checkout:
+
+```powershell
+.\scripts\Reset-RunnerPreparation.ps1 -Config C:\OldCheckout\github-runners\local\controller.json -WhatIf
+.\scripts\Reset-RunnerPreparation.ps1 -Config C:\OldCheckout\github-runners\local\controller.json
+```
+
+The script accepts the same `-Config`/`-StorageRoot` selection as preparation and
+uses the example settings if the selected configuration is missing. When the old
+checkout/record is unavailable, the switch must still carry its valid
+`clc-runners-network/v1|<owner-guid>` marker, and the NAT name/prefix must match the
+selected settings. A NAT-only remainder requires the saved ownership record.
+
+Reset refuses unmarked/external switches, mismatched records, NATs with unexpected
+static mappings, attached VMs (even stopped ones), running controllers, existing
+startup tasks and selected storage containing activation state, credentials or
+images. Use the [normal stop and cleanup process](#stop-cleanup-and-recovery) for
+an activated installation. `-WhatIf` is read-only and creates no lock files or
+directories.
+
 ## Prepare this Windows VM
 
 Use PowerShell 7.4+ under the same Windows account that owns the saved DPAPI PAT.

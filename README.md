@@ -17,6 +17,8 @@ For a dedicated non-admin local account, an administrator can run
 from a fresh checkout, then sign in as that user and run activation below.
 See [account preparation](docs/operations.md#prepare-a-dedicated-non-admin-account)
 for existing accounts, storage selection and a dry run.
+For a fresh start after preparation in the wrong checkout, use
+[preparation reset](docs/operations.md#reset-unused-preparation).
 
 For setup under your current Windows account, run from this checkout.
 First, in elevated PowerShell 7:

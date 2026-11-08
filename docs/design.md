@@ -72,6 +72,13 @@ saved. Repeated preparation checks this identity, subnet and NAT; it never adopt
 a similarly named foreign switch. Existing conflicting resources are preserved.
 There are no inbound NAT mappings or physical-LAN bridged guest NICs.
 
+An explicit pre-activation `Reset-RunnerPreparation.ps1` removes an unused owned
+network and its preparation records. It can recover from a missing checkout by
+verifying the switch's runner ownership marker and the configured NAT prefix.
+Attached VMs, active controllers/startup tasks, activated storage, foreign resources
+and unexpected NAT mappings prevent reset. Metadata is removed only after both
+network resources are gone, allowing retry after a partial removal failure.
+
 NoCloud supplies each guest's static IP, gateway, DNS and MAC match. Allocation
 comes from a configurable range and persists in each VM manifest until cleanup
 completes. MACs derive uniquely from allocated addresses. Hyper-V MAC spoofing is

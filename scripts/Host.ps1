@@ -71,7 +71,9 @@ function Initialize-RunnerNetwork([string]$Config) {
         if ($record) {
             foreach ($key in @('subnet','gateway','switchName','natName')) { if ($record[$key] -cne $net.$key) { throw 'Saved network differs from configuration. Restore it; this tool never reconfigures an existing network.' } }
         } else {
-            if (@(Get-VMSwitch | Where-Object Name -EQ $net.switchName).Count -or @(Get-NetNat | Where-Object Name -EQ $net.natName).Count) { throw 'Configured switch/NAT name already exists without this installation ownership record. Choose unused names; existing resources were preserved.' }
+            if (@(Get-VMSwitch | Where-Object Name -EQ $net.switchName).Count -or @(Get-NetNat | Where-Object Name -EQ $net.natName).Count) {
+                throw "Configured switch/NAT name already exists without this installation ownership record at '$path'. If preparation ran from another checkout on this host, restore its matching network.json here and rerun, or preview a fresh start with scripts/Reset-RunnerPreparation.ps1 -WhatIf. See docs/operations.md (Recover preparation started in another checkout). Existing resources were preserved."
+            }
             $record=@{ version=1; owner=[guid]::NewGuid().ToString(); subnet=$net.subnet; gateway=$net.gateway; switchName=$net.switchName; natName=$net.natName; switchId=''; phase='intent' }
         }
         $switch=@(Get-VMSwitch | Where-Object Name -EQ $net.switchName)

@@ -34,6 +34,7 @@ try {
 & (Join-Path $PSScriptRoot 'Test-PasswordStartup.ps1')
 & (Join-Path $PSScriptRoot 'Test-HyperVHelpers.ps1')
 & (Join-Path $PSScriptRoot 'Test-RunnerAccount.ps1')
+& (Join-Path $PSScriptRoot 'Test-PreparationReset.ps1')
 & (Join-Path $PSScriptRoot 'Test-NetworkPolicy.ps1')
 & (Join-Path $PSScriptRoot 'Test-ImageConversion.ps1')
 & (Join-Path $PSScriptRoot 'Test-Restart.ps1')
