@@ -45,6 +45,11 @@ try {
         $scripts=Join-Path $shim 'scripts'
         $null=New-Item -ItemType Directory -Path $scripts,(Join-Path $shim 'config'),(Join-Path $shim '.git') -Force
         Copy-Item -LiteralPath (Join-Path $repository 'scripts/Invoke-AccountSetup.ps1'),(Join-Path $repository 'scripts/Set-RunnerToken.ps1') -Destination $scripts
+        foreach ($name in @('Restart.ps1','Restart-Controller.ps1','Test-Unattended.ps1','Invoke-StartupProbe.ps1','HyperV.ps1')) {
+            Copy-Item -LiteralPath (Join-Path $repository "scripts/$name") -Destination $scripts
+        }
+        $null=New-Item -ItemType Directory -Path (Join-Path $shim 'bin')
+        [IO.File]::WriteAllText((Join-Path $shim 'bin/clc-runners.exe'),'Synthetic controller for restart-runtime fingerprinting')
         Copy-Item -LiteralPath (Join-Path $repository 'config/controller.example.json') -Destination (Join-Path $shim 'config/controller.example.json')
         [IO.File]::WriteAllText((Join-Path $scripts 'Common.ps1'),(". '"+$repository.Replace("'","''")+"/scripts/Common.ps1'`n`$script:RunnerRoot=Split-Path `$PSScriptRoot -Parent`n"))
         [IO.File]::WriteAllText((Join-Path $scripts 'Host.ps1'),'function Test-RunnerAdministrator { $false }')
@@ -67,6 +72,9 @@ function Invoke-RunnerActivation {
         [Console]::Error.WriteLine($StartupCredential.GetNetworkCredential().Password+' '+$text)
         throw ('Synthetic failure: '+$StartupCredential.GetNetworkCredential().Password+' '+$text)
     }
+    # Exercise the real post-validation boundary used by Activate step 6.
+    # The worker must load the restart helpers before invoking activation.
+    $null=New-RunnerRestartRuntime
     & $PasswordTaskRegistrar
     Write-Host 'Worker verified identity, pipes and DPAPI.'
 }
@@ -97,6 +105,11 @@ function Invoke-RunnerActivation {
         Assert-AccountSetup ($output.Contains('Worker verified identity, pipes and DPAPI.') -and $testState.Registrations -eq 1) 'Actual child worker did not finish the request/response flow'
         Assert-AccountSetup (-not $output.Contains($secret) -and -not $output.Contains($pat)) 'Successful setup output exposed a secret'
         Assert-AccountSetup ($testState.Prompts -eq 0) 'Supplied PAT still prompted'
+        $manifest=Read-RunnerJson (Join-Path $shim 'bin/restart-runtime.json')
+        Assert-AccountSetup ($manifest -and $manifest.binary -eq (Join-Path $shim 'bin/clc-runners.exe') -and $manifest.files.Count -eq 7) 'Worker did not stage the complete restart runtime after installation validation'
+        foreach ($file in $manifest.files.Keys) {
+            Assert-AccountSetup ((Test-Path -LiteralPath $file) -and (Get-FileHash -LiteralPath $file).Hash -eq $manifest.files[$file]) 'Worker restart bundle did not match its manifest'
+        }
         Invoke-RunnerAccountSetup $configPath $sid.Value $credential *> $null
         Assert-AccountSetup ($testState.Prompts -eq 1 -and $testState.Registrations -eq 2) 'Administrator-side secure PAT prompt was not used'
         $failedOutput=[Collections.Generic.List[string]]::new()

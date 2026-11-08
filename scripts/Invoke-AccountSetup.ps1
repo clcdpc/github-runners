@@ -10,6 +10,7 @@ param(
 . (Join-Path $PSScriptRoot 'Host.ps1')
 . (Join-Path $PSScriptRoot 'Startup.ps1')
 . (Join-Path $PSScriptRoot 'Activate.ps1')
+. (Join-Path $PSScriptRoot 'Restart.ps1')
 [Console]::InputEncoding=[Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
 $OutputEncoding=[Text.UTF8Encoding]::new($false)
