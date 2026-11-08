@@ -80,8 +80,15 @@ function Register-RunnerPasswordTask([string]$TaskName,$Task,[PSCredential]$Cred
 }
 
 function Get-RunnerStartupTask {
-    # A missing task is normal. Scheduler/service/permission failures must surface.
-    @(Get-ScheduledTask -TaskPath '\' -ErrorAction Stop | Where-Object TaskName -EQ 'CLC-Linux-Runners') | Select-Object -First 1
+    # CIM reports a missing task or empty root folder as ObjectNotFound.
+    # Only that query miss is normal; service/permission failures must surface.
+    try {
+        Get-ScheduledTask -TaskName 'CLC-Linux-Runners' -TaskPath '\' -ErrorAction Stop | Select-Object -First 1
+    } catch {
+        if ($_.CategoryInfo.Category -eq [Management.Automation.ErrorCategory]::ObjectNotFound -and
+            $_.FullyQualifiedErrorId -like 'CmdletizationQuery_NotFound*') { return $null }
+        throw
+    }
 }
 
 function Disable-RunnerStartup([string]$Config) {

@@ -28,6 +28,36 @@ try {
     $credential=[PSCredential]::new($identity.Name,(ConvertTo-SecureString $secret -AsPlainText -Force))
 
     & {
+        # Exercise the real startup lookup. An exact CIM query reports a
+        # missing task/root as an error, unlike an empty mocked task list.
+        $lookup=@{Mode='MissingPath';Name='';Path='';Task=[pscustomobject]@{TaskName='CLC-Linux-Runners';TaskPath='\'}}
+        function Get-ScheduledTask {
+            [CmdletBinding()]param([string[]]$TaskName,[string[]]$TaskPath)
+            $lookup.Name=$TaskName -join ',';$lookup.Path=$TaskPath -join ','
+            switch ($lookup.Mode) {
+                'MissingPath' { Write-Error "No MSFT_ScheduledTask objects found with property 'TaskPath' equal to ''. Verify the value of the property and retry." -Category ObjectNotFound -ErrorId CmdletizationQuery_NotFound_TaskPath; return }
+                'MissingName' { Write-Error 'No MSFT_ScheduledTask objects found with the requested TaskName.' -Category ObjectNotFound -ErrorId CmdletizationQuery_NotFound_TaskName; return }
+                'Denied' { Write-Error 'Scheduler access denied' -Category PermissionDenied -ErrorId SchedulerAccessDenied; return }
+                'Unavailable' { Write-Error 'Scheduler RPC unavailable' -Category ResourceUnavailable -ErrorId SchedulerUnavailable; return }
+                'OtherNotFound' { Write-Error 'Scheduler class not found' -Category ObjectNotFound -ErrorId SchedulerClassNotFound; return }
+            }
+            $lookup.Task
+        }
+        Assert-Password ($null -eq (Get-RunnerStartupTask)) 'An empty root folder was not treated as missing startup'
+        $lookup.Mode='MissingName'
+        Assert-Password ($null -eq (Get-RunnerStartupTask)) 'A missing controller task was not treated as missing startup'
+        $lookup.Mode='Found'
+        Assert-Password ([object]::ReferenceEquals($lookup.Task,(Get-RunnerStartupTask))) 'Existing startup task was not returned'
+        Assert-Password ($lookup.Name -eq 'CLC-Linux-Runners' -and $lookup.Path -eq '\') 'Startup lookup was not restricted to the controller task in the root folder'
+        $lookup.Mode='Denied'
+        Assert-PasswordFailure { Get-RunnerStartupTask } 'Scheduler access denied'
+        $lookup.Mode='Unavailable'
+        Assert-PasswordFailure { Get-RunnerStartupTask } 'Scheduler RPC unavailable'
+        $lookup.Mode='OtherNotFound'
+        Assert-PasswordFailure { Get-RunnerStartupTask } 'Scheduler class not found'
+    }
+
+    & {
         $script:simulatedSession=1;$script:simulatedBoot=[DateTime]'2026-11-01T00:00:00Z'
         $script:simulatedMachine='machine-one'
         function Get-Process { param($Id) [pscustomobject]@{SessionId=$script:simulatedSession} }
