@@ -72,6 +72,8 @@ try {
     Write-Host ("Set-Location '" + $plan.Root.Replace("'", "''") + "'")
     Write-Host (".\runners.ps1 Activate -Config '" + $plan.Config.Replace("'", "''") + "' -StartupMode Password")
     Write-Host 'Activation prompts for the GitHub PAT and Windows password, then validates Hyper-V/DPAPI under this account.'
+    Write-Host 'To finish from this administrator session without signing in as the runner account, instead run:'
+    Write-Host (".\scripts\Setup-RunnerAccount.ps1 -UserName '" + $UserName.Replace("'", "''") + "' -Config '" + $plan.Config.Replace("'", "''") + "'")
 } finally {
     $Password = $null
     $lock.Dispose()

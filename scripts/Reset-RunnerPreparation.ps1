@@ -37,7 +37,9 @@ if (-not $PSCmdlet.ShouldProcess($plan.Config, 'Remove unused runner switch/NAT 
 
 $managementLock = $null
 $networkLock = $null
+$accountSetupLock = $null
 try {
+    $accountSetupLock = Enter-RunnerFileLock (Join-Path $plan.Root 'bin/account-setup.lock')
     $managementLock = Enter-RunnerFileLock (Join-Path $plan.Root 'bin/management.lock')
     $networkLock = Enter-RunnerFileLock (Join-Path $plan.Data 'network.json.lock')
     $current = Get-RunnerPreparationResetPlan $Config $StorageRoot
@@ -47,4 +49,5 @@ try {
 } finally {
     if ($networkLock) { $networkLock.Dispose() }
     if ($managementLock) { $managementLock.Dispose() }
+    if ($accountSetupLock) { $accountSetupLock.Dispose() }
 }

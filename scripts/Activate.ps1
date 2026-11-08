@@ -55,8 +55,12 @@ function Invoke-RunnerActivation(
     [string]$Config = 'local/controller.json', [switch]$NoStartup, [switch]$ForceRebuild,
     [switch]$FromGitHubCLI, [switch]$NoCache,
     [ValidateSet('Auto','S4U','Interactive','Password')][string]$StartupMode = 'Auto',
-    [PSCredential]$StartupCredential
+    [PSCredential]$StartupCredential,
+    [scriptblock]$TokenProvider, [switch]$RefreshAuthentication,
+    [scriptblock]$PasswordTaskRegistrar
 ) {
+    if ($RefreshAuthentication -and -not $TokenProvider) { throw 'Refreshing authentication requires a token provider.' }
+    if ($TokenProvider -and $FromGitHubCLI) { throw 'Choose either a token provider or GitHub CLI authentication.' }
     Write-Host 'CLC GitHub Runners - Activation'
     $localSettings = Initialize-RunnerConfig $Config
     $Config = $localSettings.Path
@@ -67,7 +71,7 @@ function Invoke-RunnerActivation(
     $startupError = $null
     try {
         $live = Get-RunnerRuntime $Config
-        if ($live.Alive -and $live.Status['restartSupported'] -and -not $ForceRebuild -and -not $NoCache -and $StartupMode -eq 'Auto' -and -not $StartupCredential) {
+        if ($live.Alive -and $live.Status['restartSupported'] -and -not $ForceRebuild -and -not $NoCache -and -not $RefreshAuthentication -and $StartupMode -eq 'Auto' -and -not $StartupCredential) {
             Stage-RunnerControllerUpdate $Config
             return
         }
@@ -87,7 +91,13 @@ function Invoke-RunnerActivation(
         } @stepArguments
 
         Invoke-RunnerActivationStep 3 'GitHub authentication' 'Valid (organization read and runner write)' {
-            if (-not (Test-Path -LiteralPath $settings.controller.patFile)) {
+            if ($TokenProvider -and ($RefreshAuthentication -or -not (Test-Path -LiteralPath $settings.controller.patFile))) {
+                $token = & $TokenProvider
+                try {
+                    if ($token -isnot [Security.SecureString] -or -not $token.Length) { throw 'A nonempty secure PAT is required.' }
+                    & (Join-Path $script:RunnerRoot 'scripts/Set-RunnerToken.ps1') -Config $Config -Token $token
+                } finally { if ($token -is [Security.SecureString]) { $token.Dispose() }; $token = $null }
+            } elseif (-not (Test-Path -LiteralPath $settings.controller.patFile)) {
                 Set-RunnerAuthentication -Config $Config -FromGitHubCLI:$FromGitHubCLI
             }
             Invoke-RunnerCommand check-auth $Config
@@ -128,6 +138,7 @@ function Invoke-RunnerActivation(
                 Invoke-RunnerActivationStep 7 'Automatic startup' 'Ready' {
                     $startupArguments=@{Config=$Config;Mode=$StartupMode}
                     if ($StartupCredential) { $startupArguments['Credential']=$StartupCredential }
+                    if ($PasswordTaskRegistrar) { $startupArguments['PasswordTaskRegistrar']=$PasswordTaskRegistrar }
                     $null = Enable-RunnerStartup @startupArguments
                 } @stepArguments
                 $startup = Get-RunnerStartupSummary $Config
@@ -136,6 +147,8 @@ function Invoke-RunnerActivation(
                 $startup = 'FAILED - ' + $startupError
             }
         }
+
+        if ($startupError -and $PasswordTaskRegistrar) { throw ('Unattended startup failed during account setup: '+$startupError) }
 
         Invoke-RunnerActivationStep 8 'Controller' 'Listening' {
             $runtime = Get-RunnerRuntime $Config

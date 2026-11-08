@@ -128,7 +128,7 @@ function Get-RunnerStartupSummary([string]$Config) {
     return 'S4U task configured; logout and cold boot require separate validation'
 }
 
-function Enable-RunnerStartup([string]$Config, [ValidateSet('Auto','S4U','Interactive','Password')][string]$Mode = 'Auto',[PSCredential]$Credential) {
+function Enable-RunnerStartup([string]$Config, [ValidateSet('Auto','S4U','Interactive','Password')][string]$Mode = 'Auto',[PSCredential]$Credential,[scriptblock]$PasswordTaskRegistrar) {
     $localSettings = Get-RunnerSettings $Config
     $binary = Build-RunnerController
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -139,7 +139,7 @@ function Enable-RunnerStartup([string]$Config, [ValidateSet('Auto','S4U','Intera
     if ($existing -and (Get-RunnerAccountSid $existing.Principal.UserId) -ne $identity.User.Value) { throw 'Startup task belongs to another account; no task was changed.' }
     if ($Credential -and $Mode -notin @('Auto','Password')) { throw 'A Windows startup credential is supported only with Password startup.' }
     if ($Mode -eq 'Auto' -and ($Credential -or ($existing -and [string]$existing.Principal.LogonType -eq 'Password'))) { $Mode='Password' }
-    if ($Mode -eq 'Password') { return Enable-RunnerPasswordStartup $Config $binary $existing $Credential }
+    if ($Mode -eq 'Password') { return Enable-RunnerPasswordStartup $Config $binary $existing $Credential -PasswordTaskRegistrar $PasswordTaskRegistrar }
     $report = Get-RunnerStartupValidation $Config
     $needsProbe = -not $report -or (-not $report['modes']['S4U']['passed'] -and -not $report['modes']['Interactive']['passed'])
     if ($Mode -ne 'Auto' -and $report -and -not $report['modes'][$Mode]['passed']) { $needsProbe = $true }
@@ -170,7 +170,15 @@ function Enable-RunnerStartup([string]$Config, [ValidateSet('Auto','S4U','Intera
     [pscustomobject]@{ Mode=$Mode; Current=$current; Summary=(Get-RunnerStartupSummary $Config) }
 }
 
-function Enable-RunnerPasswordStartup([string]$Config,[string]$Binary,$Existing,[PSCredential]$Credential) {
+function New-RunnerPasswordStartupTask([string]$ConfigPath,[string]$Binary,[string]$Account,[string]$WorkingDirectory,[ValidateSet('Limited','Highest')][string]$RunLevel='Limited') {
+    $action=New-ScheduledTaskAction -Execute $Binary -Argument ('run --quiet --config "{0}"' -f $ConfigPath) -WorkingDirectory $WorkingDirectory -ErrorAction Stop
+    $principal=New-ScheduledTaskPrincipal -UserId $Account -LogonType Password -RunLevel $RunLevel -ErrorAction Stop
+    $triggers=@(New-ScheduledTaskTrigger -AtStartup -ErrorAction Stop; New-ScheduledTaskTrigger -AtLogOn -User $Account -ErrorAction Stop)
+    $settings=New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -RestartCount 99 -RestartInterval ([TimeSpan]::FromMinutes(1)) -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ErrorAction Stop
+    New-ScheduledTask -Action $action -Principal $principal -Trigger $triggers -Settings $settings -Description ('CLC Linux Hyper-V runner controller; '+$ConfigPath) -ErrorAction Stop
+}
+
+function Enable-RunnerPasswordStartup([string]$Config,[string]$Binary,$Existing,[PSCredential]$Credential,[scriptblock]$PasswordTaskRegistrar) {
     $local=Get-RunnerSettings $Config
     if (-not (Test-Path -LiteralPath $local.Settings.controller.patFile)) { throw 'Configure the PAT with SetToken under the controller account before enabling Password startup.' }
     if ($Credential) { $Credential=Get-RunnerStartupCredential $Credential }
@@ -187,12 +195,14 @@ function Enable-RunnerPasswordStartup([string]$Config,[string]$Binary,$Existing,
         $Credential=Get-RunnerStartupCredential $Credential
         Stop-RunnerController $Config -Wait
         $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
-        $action=New-ScheduledTaskAction -Execute $Binary -Argument ('run --quiet --config "{0}"' -f $local.Path) -WorkingDirectory $script:RunnerRoot -ErrorAction Stop
-        $principal=New-ScheduledTaskPrincipal -UserId $identity.Name -LogonType Password -RunLevel $local.Settings.controller.startupRunLevel -ErrorAction Stop
-        $triggers=@(New-ScheduledTaskTrigger -AtStartup -ErrorAction Stop; New-ScheduledTaskTrigger -AtLogOn -User $identity.Name -ErrorAction Stop)
-        $settings=New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -RestartCount 99 -RestartInterval ([TimeSpan]::FromMinutes(1)) -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ErrorAction Stop
-        $task=New-ScheduledTask -Action $action -Principal $principal -Trigger $triggers -Settings $settings -Description ('CLC Linux Hyper-V runner controller; '+$local.Path) -ErrorAction Stop
-        Register-RunnerPasswordTask 'CLC-Linux-Runners' $task $Credential -Force
+        if ($PasswordTaskRegistrar) {
+            # The administrator bootstrap registers boot triggers. The worker
+            # still validates the exact task and starts it under its own SID.
+            & $PasswordTaskRegistrar
+        } else {
+            $task=New-RunnerPasswordStartupTask $local.Path $Binary $identity.Name $script:RunnerRoot $local.Settings.controller.startupRunLevel
+            Register-RunnerPasswordTask 'CLC-Linux-Runners' $task $Credential -Force
+        }
         $current=$false
         if (-not (Test-RunnerStartupTask (Get-RunnerStartupTask) $Config Password)) { throw 'Password startup task registration did not match the expected account, action and settings.' }
     }

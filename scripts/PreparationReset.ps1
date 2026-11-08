@@ -65,6 +65,14 @@ function Get-RunnerPreparationResetPlan([string]$Config, [string]$StorageRoot) {
         $path = Join-Path $accountPlan.Data $name
         if (Test-Path -LiteralPath $path) { $path }
     })
+    $setupPath=Join-Path $accountPlan.Root 'bin/account-setup.json'
+    if (Test-Path -LiteralPath $setupPath) {
+        $setup=Read-RunnerJson $setupPath
+        if ($setup -isnot [Collections.IDictionary] -or $setup['version'] -ne 1 -or $setup['root'] -ne $accountPlan.Root -or
+            $setup['config'] -ne $accountPlan.Config -or -not $setup['accountSid'] -or
+            ($accountPlan.Receipt -and $setup['accountSid'] -ne $accountPlan.Receipt.accountSid)) { throw 'Account setup receipt does not match the selected preparation; no resources were removed.' }
+        $files += $setupPath
+    }
     # Bind approval to the selected identities and file contents. Replanning
     # under the management/network locks must reproduce this exact selection.
     $identity = [ordered]@{
@@ -94,8 +102,8 @@ function Remove-RunnerPreparation($Plan) {
     }
     foreach ($file in $Plan.Files) {
         $full = [IO.Path]::GetFullPath($file)
-        if ((Split-Path $full -Parent) -ine $Plan.Data) { throw 'Preparation file escaped the selected data directory.' }
-        $null = Assert-RunnerAccountPath $Plan.Data
+        if ((Split-Path $full -Parent) -ine $Plan.Data -and $full -ine (Join-Path $Plan.Root 'bin/account-setup.json')) { throw 'Preparation file escaped the selected data directory and setup receipt.' }
+        $null = Assert-RunnerAccountPath (Split-Path $full -Parent)
         if (Test-Path -LiteralPath $full) {
             $item = Get-Item -LiteralPath $full -Force
             if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "Preparation record is not a regular file: $full" }

@@ -2,6 +2,55 @@
 
 ## Prepare a dedicated non-admin account
 
+### Setup from your administrator session
+
+Open PowerShell 7.4+ as administrator in the standalone checkout the account will
+use, such as `C:\Apps\github-runners`, and run:
+
+```powershell
+.\scripts\Setup-RunnerAccount.ps1 -UserName github-runners -CreateLocalUser
+```
+
+For the existing local account, including one already prepared but not activated:
+
+```powershell
+.\scripts\Setup-RunnerAccount.ps1 -UserName github-runners
+```
+
+Setup prompts securely for the account's Windows password and, when no saved PAT
+exists, its organization fine-grained GitHub PAT. It prepares the host and launches
+a hidden setup process as the non-admin user. Windows creates/loads that user's
+profile and obtains fresh group membership; no console sign-in or RDP session as
+the runner user is required. The worker stores the PAT with **its own CurrentUser
+DPAPI**, builds and validates the installation, and runs the existing Password
+startup probe under that SID in session 0. The administrator registers the boot
+task only after the probe passes. The worker verifies the task and starts the
+controller through it, at `Limited` run level.
+
+Secrets pass through inherited process pipes, never command-line arguments,
+environment variables, temporary credential files or task definitions. Task
+Scheduler stores the Windows startup credential through its normal credential
+store. The runner's runtime directories keep their account/SYSTEM protection.
+Neither server nor client RDP policies need changing. Windows still needs to
+permit a credential-backed local process logon and batch logon for the account;
+setup preserves deny policies and reports host-specific failures.
+
+`-Config`, `-StorageRoot`, `-WhatIf`, `-ForceRebuild` and `-NoCache` are supported.
+`-WhatIf` performs validation without prompting or making changes. For automation,
+`-Credential` accepts a `PSCredential` and `-Token` accepts a `SecureString`; an
+explicit token replaces the account's saved PAT. Keep passwords and PATs out of
+command text and shell history.
+
+Rerun the same command after a reported failure or requested manual restart.
+Completed activation work and the saved PAT are reused; the Windows password is
+requested again to validate the account and refresh its startup credential. A
+non-secret `bin/account-setup.json` receipt binds retries to the prepared checkout,
+configuration, storage root and account SID. Setup refuses another account's
+installation or startup task. Existing activated installations that were not
+created through this setup path are not transferred between accounts.
+
+### Prepare separately
+
 For a **fresh installation**, open PowerShell 7.4+ as an administrator in the
 standalone checkout that the runner account will use. A dedicated location such
 as `C:\Apps\github-runners` makes this checkout easy to access from both accounts.
@@ -48,7 +97,9 @@ policies are preserved; domain policy can overwrite local rights and must be
 resolved by its administrator.
 
 Follow any manual restart instructions and rerun the **same account-preparation
-command** as administrator. Then sign out and sign in as the runner user to create
+command** as administrator. To finish in this administrator session, run
+`scripts/Setup-RunnerAccount.ps1 -UserName github-runners` with the same `-Config`.
+Alternatively, sign out and sign in as the runner user to create
 its profile and load the new group membership. In normal PowerShell 7:
 
 ```powershell
@@ -60,6 +111,8 @@ Use the same `-Config` if one was supplied. Activation saves the PAT with the ru
 user's CurrentUser DPAPI, builds/validates the image, and validates/registers startup
 using that user's Windows password. Local Users membership permits ordinary console
 sign-in under the usual Windows policy; remote desktop access is configured separately.
+Boot-trigger creation requires administrator rights; use the administrator-session
+setup path above to register unattended startup for a non-admin account.
 The [startup probe](#unattended-boot-startup) verifies the target user's actual
 noninteractive Hyper-V and DPAPI access. Machine-specific ACL or managed-policy
 restrictions may still need their exact reported errors resolved.

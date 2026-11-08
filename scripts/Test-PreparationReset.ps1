@@ -97,6 +97,21 @@ try {
         & $fixture.Entry -Confirm:$false 6>$null
         Assert-Reset (($resetTestState.Events -join ',') -eq 'nat,switch') 'Repeating reset removed more resources'
 
+        $fixture = New-ResetFixture 'account-setup-receipt'
+        $null=New-Item -ItemType Directory -Path (Join-Path $fixture.Root 'bin')
+        $setupPath=Join-Path $fixture.Root 'bin/account-setup.json'
+        Write-RunnerJson $setupPath @{version=1;root=$fixture.Root;config=$fixture.Config;accountSid='S-1-5-21-101-102-103-1001'}
+        & $fixture.Entry -WhatIf 6>$null
+        Assert-Reset (Test-Path -LiteralPath $setupPath) 'Preview removed the account setup receipt'
+        & $fixture.Entry -Confirm:$false 6>$null
+        Assert-Reset (-not (Test-Path -LiteralPath $setupPath)) 'Reset left a stale account setup receipt'
+
+        $fixture = New-ResetFixture 'foreign-setup-receipt'
+        $null=New-Item -ItemType Directory -Path (Join-Path $fixture.Root 'bin')
+        Write-RunnerJson (Join-Path $fixture.Root 'bin/account-setup.json') @{version=1;root=$fixture.Root;config='C:\another\controller.json';accountSid='S-1-5-21-101-102-103-1001'}
+        Assert-ResetFailure { & $fixture.Entry -Confirm:$false 6>$null } 'setup receipt does not match'
+        Assert-Reset ($resetTestState.Events.Count -eq 0) 'Reset changed the network with a foreign setup receipt'
+
         $fixture = New-ResetFixture 'missing-record'
         Remove-Item -LiteralPath $fixture.Network
         $resetTestState.ExpectRecord = $false

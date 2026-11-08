@@ -69,10 +69,11 @@ $mocks = {
     }
     function Start-RunnerController([string]$Config) { $fixture.Calls.Add('start'); $fixture.Running=$true }
     function Test-RunnerInstallation([string]$Config) { $fixture.Calls.Add('validate'); if ($fixture.ValidationError) { throw $fixture.ValidationError } }
-    function Enable-RunnerStartup([string]$Config,[string]$Mode,[PSCredential]$Credential) {
+    function Enable-RunnerStartup([string]$Config,[string]$Mode,[PSCredential]$Credential,[scriptblock]$PasswordTaskRegistrar) {
         $fixture.Calls.Add('startup'); if ($fixture.StartupError) { throw $fixture.StartupError }
         $fixture.SelectedStartupMode=$Mode
         $fixture.StartupCredentialUser=if ($Credential) { $Credential.UserName } else { '' }
+        if ($PasswordTaskRegistrar) { & $PasswordTaskRegistrar }
         [pscustomobject]@{Mode='Interactive';Current=$true;Summary='At Windows sign-in'}
     }
     function Get-RunnerStartupSummary([string]$Config) { 'At Windows sign-in (account must remain signed in)' }
@@ -111,6 +112,29 @@ $cases = [ordered]@{
         Initialize-TestInstallation;$fixture.RestartSupported=$true;$fixture.Running=$true;$fixture.Busy=$true;$fixture.StageError='candidate regression validation failed'
         Assert-ActivationFailure { Invoke-TestActivation } 'candidate regression validation failed'
         Assert-Activation ($fixture.Running -and -not $fixture.Calls.Contains('stop')) 'Staging failure interrupted the live controller'
+    }
+    'Bootstrap reuses the account PAT and forwards registration after validation' = {
+        Initialize-TestInstallation
+        $broker=@{Calls=0}
+        Invoke-RunnerActivation -Config $fixture.Config -StartupMode Password -TokenProvider { throw 'Unexpected PAT prompt' } -PasswordTaskRegistrar {
+            Assert-Activation ($fixture.Calls.Contains('validate')) 'Administrator registration was requested before installation validation'
+            $broker.Calls++
+        } *> $null
+        Assert-Activation ($broker.Calls -eq 1 -and -not $fixture.Calls.Contains('auth')) 'Bootstrap repeated authentication or lost its registration broker'
+    }
+    'Bootstrap startup failure does not launch a session-bound controller' = {
+        Initialize-TestInstallation
+        $fixture.StartupError='Access denied registering the boot task'
+        Assert-ActivationFailure {
+            Invoke-RunnerActivation -Config $fixture.Config -StartupMode Password -PasswordTaskRegistrar {}
+        } 'Unattended startup failed during account setup'
+        Assert-Activation (-not $fixture.Running -and -not $fixture.Calls.Contains('start')) 'Bootstrap fell back to a controller tied to the setup session'
+    }
+    'Empty bootstrap token stops before provisioning or startup' = {
+        Initialize-TestInstallation
+        Remove-Item -LiteralPath (Get-RunnerSettings $fixture.Config).Settings.controller.patFile
+        Assert-ActivationFailure { Invoke-RunnerActivation -Config $fixture.Config -StartupMode Password -TokenProvider { [Security.SecureString]::new() } } 'nonempty secure PAT'
+        Assert-Activation (-not $fixture.Calls.Contains('setup:--quiet') -and -not $fixture.Calls.Contains('startup') -and -not $fixture.Running) 'Empty PAT allowed provisioning or startup'
     }
     'Fresh configuration and missing PAT' = {
         $fixture.BuildCurrent=$false; $fixture.ImageCurrent=$false; $fixture.Configured=$false

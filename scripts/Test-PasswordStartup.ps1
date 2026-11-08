@@ -120,6 +120,20 @@ try {
         Assert-PasswordFailure { Enable-RunnerStartup $configPath -Mode Password -Credential $credential } 'another account'
         $script:startupTask.Principal.UserId=$identity.Name
 
+        $broker=@{Calls=0}
+        $beforeBroker=$script:passwordRegistrations
+        $registrar={
+            $broker.Calls++
+            $script:startupTask=New-RunnerPasswordStartupTask $configPath $binary $identity.Name $repository Limited
+        }
+        $null=Enable-RunnerStartup $configPath -Mode Password -Credential $credential -PasswordTaskRegistrar $registrar
+        Assert-Password ($broker.Calls -eq 1 -and $script:passwordRegistrations -eq $beforeBroker -and (Test-RunnerStartupTask $script:startupTask $configPath Password)) 'Bootstrap worker registered the boot task itself or accepted an invalid broker result'
+        $script:passwordFingerprint='unvalidated-bootstrap';$script:passwordProbePass=$false
+        Assert-PasswordFailure { Enable-RunnerStartup $configPath -Mode Password -Credential $credential -PasswordTaskRegistrar $registrar } 'did not pass'
+        Assert-Password ($broker.Calls -eq 1) 'Failed session-0 validation requested privileged registration'
+        $script:passwordFingerprint='changed-inputs';$script:passwordProbePass=$true
+        $null=Enable-RunnerStartup $configPath -Mode Password -Credential $credential
+
         function Get-RunnerRuntime { param($Config) [pscustomobject]@{Alive=$false;Status=@{}} }
         function Start-ScheduledTask { [CmdletBinding()]param($TaskName) if ($script:passwordStartError) { throw 'Synthetic task start failure' };Assert-Password ($TaskName -eq 'CLC-Linux-Runners') 'Wrong background task started';$script:passwordStarts++ }
         function Wait-RunnerHealthy { param($Config,$TimeoutSeconds,$StartupGraceSeconds) Assert-Password ($TimeoutSeconds -eq 120 -and $StartupGraceSeconds -eq 15) 'Scheduled launch lacked startup grace';[pscustomobject]@{Healthy=$true} }

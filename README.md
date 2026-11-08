@@ -12,11 +12,20 @@ Requires Windows x64 with Hyper-V, PowerShell 7.4+, internet access and
 [sufficient capacity](docs/operations.md#capacity-and-storage). If Windows runs
 inside a VM, its host must expose nested virtualization.
 
-For a dedicated non-admin local account, an administrator can run
-`.\scripts\Prepare-RunnerAccount.ps1 -UserName github-runners -CreateLocalUser`
-from a fresh checkout, then sign in as that user and run activation below.
-See [account preparation](docs/operations.md#prepare-a-dedicated-non-admin-account)
-for existing accounts, storage selection and a dry run.
+For a dedicated non-admin local account, open elevated PowerShell 7 in a fresh
+standalone checkout and run:
+
+```powershell
+.\scripts\Setup-RunnerAccount.ps1 -UserName github-runners -CreateLocalUser
+```
+
+This prompts for the account's Windows password and GitHub PAT, prepares the host,
+activates under that account and configures unattended startup. No interactive
+sign-in or RDP access for the runner account is needed. Omit `-CreateLocalUser`
+for the existing account, including one already prepared with
+`Prepare-RunnerAccount.ps1`. Rerun the same setup command after a failure or a
+requested manual restart. See [account setup](docs/operations.md#prepare-a-dedicated-non-admin-account)
+for storage selection, a dry run and the separate preparation/activation path.
 For a fresh start after preparation in the wrong checkout, use
 [preparation reset](docs/operations.md#reset-unused-preparation).
 

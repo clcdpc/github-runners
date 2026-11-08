@@ -1,5 +1,32 @@
 # Validation and acceptance
 
+## Administrator-session account setup, November 7, 2026
+
+`scripts/Setup-RunnerAccount.ps1` prepares/activates a non-admin local account
+without a desktop sign-in. A profile-backed worker stores the account's DPAPI PAT
+and performs activation and the Password probe. The administrator registers the
+fixed Limited boot task after validation; startup failure does not fall back to
+a controller tied to the setup session. Retries preserve the prepared identity
+and saved credentials, and unused-preparation reset removes the setup receipt.
+
+`go test -count=1 ./...`, `go vet ./...`, and the complete PowerShell suite passed.
+The new setup suite passed **72 assertions**, including real child PowerShell
+process pipes and CurrentUser DPAPI, non-ASCII passwords, quoted/spaced paths,
+error redaction, native task-definition construction, task ACLs, ownership
+conflicts, dry runs and retries. Account switching, host provisioning and task
+registration/COM are mocked. Activation passed **30 scenarios / 141 assertions**;
+Password startup passed **144 assertions**, including validation before brokered
+registration; preparation reset passed **195 assertions**. The setup suite runs
+inside a scratch working directory, checks write targets and verifies the real
+checkout configuration hash is unchanged.
+
+Native acceptance still requires the target Windows Server 2022 host: run setup
+for a local account that has never signed in, confirm profile creation and actual
+Password probe/registration, inspect the task's account and Limited run level,
+then complete a workflow after signing out the administrator and after a manual
+reboot. Real credential-based process creation, Scheduler ACL application and
+Hyper-V/boot operation were not exercised in this session.
+
 ## Storage root and 20 GiB disks, November 6, 2026
 
 Top-level `storageRoot` now bases relative data, image, log and PAT paths on one

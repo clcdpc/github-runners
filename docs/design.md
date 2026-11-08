@@ -183,6 +183,18 @@ deciding whether an unchanged healthy process can be reused.
 
 ## Security, migration and boundaries
 
+Administrator-session account setup uses a hidden credential-backed PowerShell
+process with the target user's Windows profile loaded. Password/PAT exchange uses
+inherited process pipes; requests are bound to an in-memory per-run channel ID.
+The worker verifies its SID and non-admin token before reading credentials, stores
+its own CurrentUser DPAPI PAT and runs normal activation and session-0 validation.
+Only boot-task registration crosses back to the administrator: the parent builds
+the fixed controller action, account and `Limited` principal itself, checks existing
+task ownership, and grants that user task access. Worker-supplied task definitions
+and arbitrary privileged commands are never executed. The worker verifies the
+registered task before starting it. A non-secret receipt outside private runtime
+directories permits retries without changing their account/SYSTEM ACLs.
+
 The PAT remains Windows CurrentUser DPAPI, usable only by its Windows account and
 machine. Private host directories allow that account and SYSTEM; individual VM
 accounts get the disk/seed access they require. Guests receive no PAT, host

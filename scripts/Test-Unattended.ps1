@@ -85,5 +85,5 @@ try {
     Write-Host "Unattended validation report: $reportPath"
 }
 if ($Mode -eq 'Password') {
-    if (-not $report.modes.Password.passed) { throw 'Password scheduled task did not pass. See unattended-validation.json for exact failures.' }
+    if (-not $report.modes.Password.passed) { throw ('Password scheduled task did not pass: '+($report.modes.Password.errors -join '; ')+'. See unattended-validation.json for exact failures.') }
 } elseif (-not $report.modes.Interactive.passed -and -not $report.modes.S4U.passed) { throw 'Neither scheduled task mode passed. See unattended-validation.json for exact failures.' }
